@@ -12,8 +12,8 @@
 | SSH | ✅ |
 | Containerd | ✅ |
 | Kubernetes | ✅ |
-| Calico | 🔄 |
-| Worker Node | ⏳ |
+| Calico | ✅ |
+| Worker Node | 🔄 |
 
 ## Plataforma
 
