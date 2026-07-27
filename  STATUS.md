@@ -13,16 +13,16 @@
 | Containerd | ✅ |
 | Kubernetes | ✅ |
 | Calico | ✅ |
-| Worker Node | 🔄 |
+| Worker Node | ✅ |
 
 ## Plataforma
 
 | Componente | Status |
 |------------|:------:|
-| Helm | ⏳ |
-| Metrics Server | ⏳ |
-| NGINX Ingress | ⏳ |
-| MetalLB | ⏳ |
+| Helm | ✅ |
+| Metrics Server | ✅ |
+| NGINX Ingress | ✅ |
+| MetalLB | 🔄 |
 
 ## Observabilidade
 

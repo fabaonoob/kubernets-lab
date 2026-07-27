@@ -1,0 +1,19 @@
+controller:
+  replicaCount: 2
+
+  ingressClassResource:
+    enabled: true
+    default: true
+    name: nginx
+
+  service:
+    type: NodePort
+
+  metrics:
+    enabled: true
+
+  admissionWebhooks:
+    enabled: true
+
+defaultBackend:
+  enabled: true
