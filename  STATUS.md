@@ -22,6 +22,8 @@
 | Helm | ✅ |
 | Metrics Server | ✅ |
 | NGINX Ingress | ✅ |
+| Cert-Manager | ✅ |
+| Longhorn | ✅ |
 | MetalLB | 🔄 |
 
 ## Observabilidade
