@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitops-test
+  namespace: gitops-test
+spec:
+  selector:
+    app: gitops-test
+  ports:
+    - port: 80
+      targetPort: 80
+  type: ClusterIP
