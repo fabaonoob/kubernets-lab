@@ -1,223 +1,230 @@
-# 15 - MetalLB
+# MetalLB
+
+Última atualização: 24/09/2026
 
 ## Objetivo
 
-Instalar o MetalLB como solução de LoadBalancer para o cluster Kubernetes.
+Disponibilizar endereços IP do ambiente de laboratório para Services Kubernetes do tipo `LoadBalancer`.
 
-Como o ambiente do laboratório é baseado em infraestrutura local (on-premises), não existe integração nativa com provedores de nuvem para provisionamento automático de serviços do tipo LoadBalancer.
+Como o cluster é executado localmente em Hyper-V e não possui um Load Balancer externo, o MetalLB fornece essa funcionalidade dentro da rede do laboratório.
 
-O MetalLB permitirá que serviços Kubernetes recebam endereços IP externos dentro da rede local, possibilitando uma exposição de aplicações mais próxima de ambientes produtivos.
+## Arquitetura
 
----
+Rede Kubernetes:
 
-## Motivo da escolha
-
-O MetalLB foi escolhido por apresentar:
-
-- Totalmente Open Source
-- Desenvolvido especificamente para ambientes Kubernetes on-premises
-- Instalação simples via Helm
-- Compatibilidade com serviços Kubernetes do tipo LoadBalancer
-- Integração nativa com Ingress Controllers
-- Suporte a anúncios de IP através de protocolos de rede
-- Baixo consumo de recursos
-- Ampla utilização em ambientes bare metal
-
----
-
-## Pré-requisitos
-
-Antes da instalação, o cluster deve possuir:
-
-- Kubernetes funcionando corretamente
-- Helm instalado e configurado
-- Rede disponível para reserva de endereços IP
-- Comunicação entre os nós Kubernetes
-
-Ambiente utilizado:
-
-| Nó | Hostname | IP |
-|---|---|---|
-| Control Plane | VUHMT | 10.10.10.10 |
-| Worker Node | VUHWK | 10.10.10.20 |
-
----
-
-## Instalação
-
-Adicionar o repositório Helm do MetalLB:
-
-```bash
-helm repo add metallb https://metallb.github.io/metallb
+```text
+10.10.10.0/24
 ```
 
-Atualizar os repositórios:
+Host Hyper-V:
 
-```bash
-helm repo update
+```text
+10.10.10.1
 ```
 
-Criar namespace:
+Control Plane:
+
+```text
+VUHMT
+10.10.10.10
+```
+
+Worker:
+
+```text
+VUHWK
+10.10.10.20
+```
+
+Pool MetalLB:
+
+```text
+10.10.10.100 - 10.10.10.120
+```
+
+## Versão
+
+```text
+MetalLB: 0.16.1
+Helm Chart: 0.16.1
+```
+
+## Namespace
 
 ```bash
 kubectl create namespace metallb-system
 ```
 
-Instalação através do Helm:
+## Instalação
+
+Repositório:
+
+```bash
+helm repo add metallb https://metallb.github.io/metallb
+helm repo update
+```
+
+Instalação:
 
 ```bash
 helm install metallb metallb/metallb \
--n metallb-system
+  -n metallb-system
 ```
 
----
+## Componentes
 
-## Validação da instalação
-
-Verificar instalação através do Helm:
-
-```bash
-helm list -A
-```
-
-Resultado esperado:
+O MetalLB executa:
 
 ```text
-NAME       NAMESPACE          STATUS
-metallb    metallb-system     deployed
+Controller
+Speaker
+FRR
 ```
 
----
+Os componentes foram validados no cluster.
 
-Verificar os pods do MetalLB:
+## IPAddressPool
 
-```bash
-kubectl get pods -n metallb-system -o wide
+Pool utilizado:
+
+```yaml
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: production-pool
+  namespace: metallb-system
+spec:
+  addresses:
+    - 10.10.10.100-10.10.10.120
 ```
 
-Resultado obtido:
+Características:
 
 ```text
-metallb-controller          Running
-metallb-frr-k8s             Running
-metallb-speaker             Running
+autoAssign: true
+avoidBuggyIPs: false
 ```
 
----
+## L2Advertisement
 
-## Componentes instalados
+Configuração:
 
-### Controller
-
-Responsável pelo gerenciamento dos recursos do MetalLB e controle da alocação dos endereços IP.
-
----
-
-### Speaker
-
-Executado nos nós Kubernetes através de DaemonSet.
-
-Responsável por anunciar os endereços IP dos serviços LoadBalancer para a rede externa.
-
----
-
-### FRR-K8S
-
-Componente utilizado pelo MetalLB para funcionalidades de roteamento e anúncios de rede.
-
----
-
-## Configuração de rede
-
-O MetalLB foi instalado utilizando a arquitetura baseada em FRR disponibilizada pelo chart atual.
-
-A comunicação dos componentes ficou distribuída da seguinte forma:
-
-```text
-VUHMT
- |
- |-- metallb-speaker
- |
-VHUWK
- |
- |-- metallb-speaker
+```yaml
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: production
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - production-pool
 ```
 
----
+O anúncio utiliza o modo Layer 2.
 
-## Problemas encontrados durante a instalação
+## Validação
 
-Durante a implementação foi identificado impacto de desempenho no nó Control Plane.
-
-### Causa
-
-O ambiente possuía recursos limitados de memória RAM, ocasionando lentidão durante a criação e inicialização dos componentes.
-
-### Solução aplicada
-
-Foi realizado aumento da memória dinâmica da máquina virtual.
-
-Após o ajuste:
-
-- Componentes do MetalLB estabilizados;
-- Pods em estado Running;
-- Cluster voltou a responder normalmente.
-
----
-
-## Validação final
-
-Comandos utilizados:
+Pods:
 
 ```bash
 kubectl get pods -n metallb-system -o wide
 ```
 
+Foram validados:
+
+```text
+metallb-controller
+metallb-speaker
+metallb-frr-k8s
+```
+
+Pool:
+
 ```bash
-kubectl get all -n metallb-system
+kubectl get ipaddresspool -n metallb-system
 ```
 
 Resultado esperado:
 
-- Controller disponível;
-- Speakers ativos nos nós;
-- Serviços internos criados;
-- MetalLB operacional.
-
----
-
-## Integração com Ingress Controller
-
-Após a instalação do MetalLB, o próximo passo será alterar o Ingress Controller para utilização de um serviço do tipo LoadBalancer.
-
-Fluxo esperado:
-
 ```text
-Cliente
-   |
-   |
-IP Externo (MetalLB)
-   |
-   |
-Ingress NGINX
-   |
-   |
-Service Kubernetes
-   |
-   |
-Aplicação
+production-pool
+10.10.10.100-10.10.10.120
 ```
 
----
+Advertisement:
 
-## Conclusão
+```bash
+kubectl get l2advertisement -n metallb-system
+```
 
-A instalação do MetalLB adicionou ao cluster Kubernetes a capacidade de disponibilizar serviços externos utilizando o recurso LoadBalancer em ambiente on-premises.
+## Teste funcional
 
-Com essa implementação concluída, o laboratório passa a possuir uma arquitetura mais próxima de ambientes corporativos, permitindo a publicação de aplicações utilizando:
+Foi criado um Deployment de teste:
 
-- LoadBalancer;
-- Ingress Controller;
-- Certificados TLS;
-- Serviços persistentes;
-- Arquiteturas baseadas em Kubernetes.
+```bash
+kubectl create deployment metallb-test \
+  --image=nginx:alpine
+```
+
+Service:
+
+```bash
+kubectl expose deployment metallb-test \
+  --port=80 \
+  --target-port=80 \
+  --type=LoadBalancer
+```
+
+O Service recebeu:
+
+```text
+ClusterIP: 10.105.65.225
+ExternalIP: 10.10.10.102
+```
+
+O endereço foi acessado com:
+
+```bash
+curl http://10.10.10.102
+```
+
+O NGINX retornou HTTP 200 e sua página padrão.
+
+O acesso também foi validado a partir do Windows Host:
+
+```powershell
+curl http://10.10.10.102
+```
+
+Resultado:
+
+```text
+StatusCode : 200
+```
+
+## Limpeza do teste
+
+Após a validação:
+
+```bash
+kubectl delete service metallb-test
+kubectl delete deployment metallb-test
+```
+
+## Resultado
+
+O MetalLB fornece IPs do pool:
+
+```text
+10.10.10.100-10.10.10.120
+```
+
+para Services do tipo:
+
+```text
+LoadBalancer
+```
+
+e o acesso externo dentro da rede do laboratório foi validado.
+
+**Status: ✅ Concluído**

@@ -1,126 +1,71 @@
-# 12 - Longhorn
+# Longhorn
+
+Última atualização: 24/09/2026
 
 ## Objetivo
 
-Instalar e validar o Longhorn como solução de armazenamento persistente do cluster Kubernetes.
+Implementar armazenamento persistente para workloads Kubernetes utilizando Longhorn, com integração ao StorageClass padrão do cluster.
 
-Nesta primeira etapa do laboratório, o Longhorn será utilizado com **apenas o worker `vuhwk` como nó de armazenamento**, mantendo o control-plane `vuhmt` fora do storage.
+A arquitetura adotada para o laboratório utiliza apenas o worker `vuhwk` como nó de armazenamento.
 
-A configuração atual utiliza **1 réplica por volume**, pois existe somente um nó de storage disponível.
+> **Decisão de arquitetura:** o control-plane `vuhmt` não participa do armazenamento Longhorn e não recebe réplicas de volumes.
 
-> Esta configuração é adequada para validação funcional, mas não fornece alta disponibilidade de storage.
-
----
-
-## Motivo da escolha
-
-O Longhorn foi escolhido por apresentar:
-
-- Open Source
-- Desenvolvido pela SUSE
-- Instalação via Helm
-- Interface Web integrada
-- Snapshots
-- Backups para S3
-- Replicação entre nós
-- Expansão online de volumes
-- Recuperação de volumes
-- Integração nativa com Kubernetes
-- Provisionamento dinâmico através de StorageClass
-
----
-
-## Pré-requisitos
-
-Todos os nós que utilizarão volumes Longhorn devem possuir os componentes necessários para o funcionamento do storage.
-
-No Ubuntu:
-
-```bash
-sudo apt update
-sudo apt install open-iscsi -y
-```
-
-Habilitar o serviço:
-
-```bash
-sudo systemctl enable --now iscsid
-```
-
-Validar:
-
-```bash
-systemctl status iscsid
-```
-
-O serviço deve estar ativo.
-
----
-
-# Arquitetura do laboratório
-
-Atualmente o cluster possui:
-
-| Nó | Função | Longhorn |
-|---|---|---|
-| `vuhmt` | Control Plane | Não |
-| `vuhwk` | Worker | Sim |
-
-Arquitetura:
+## Arquitetura
 
 ```text
-                    Kubernetes Cluster
-                           |
-              +------------+------------+
-              |                         |
-          vuhmt                       vuhwk
-      Control Plane                  Worker
-              |                         |
-              |                    Longhorn
-              |                         |
-              |                 /var/lib/longhorn
-              |                         |
-              +------------+------------+
-                           |
-                       PVC / PV
+Kubernetes Cluster
+
+VUHMT
+10.10.10.10
+Control Plane
+    │
+    │
+    └── Não utilizado pelo Longhorn
+
+VUHWK
+10.10.10.20
+Worker + Storage
+    │
+    └── Longhorn
+          │
+          └── 1 réplica por volume
 ```
 
-O `vuhmt` não participa do armazenamento Longhorn.
+## Versão
 
----
+```text
+Longhorn: 1.12.0
+Helm Chart: 1.12.0
+```
 
-# Instalação via Helm
+## Namespace
 
-Adicionar o repositório:
+```bash
+kubectl create namespace longhorn-system
+```
+
+## Instalação
+
+Repositório Helm:
 
 ```bash
 helm repo add longhorn https://charts.longhorn.io
 helm repo update
 ```
 
-Verificar o chart:
+Instalação:
 
 ```bash
-helm search repo longhorn/longhorn
+helm install longhorn longhorn/longhorn \
+  --namespace longhorn-system \
+  --create-namespace \
+  --version 1.12.0 \
+  -f longhorn-values.yaml
 ```
 
-Versão utilizada no laboratório:
-
-```text
-1.12.0
-```
-
----
-
-# Configuração
+## Configuração
 
 Arquivo utilizado:
-
-```text
-longhorn-values.yaml
-```
-
-Conteúdo:
 
 ```yaml
 defaultSettings:
@@ -142,9 +87,15 @@ longhornUI:
     kubernetes.io/hostname: vuhwk
 ```
 
-### Observação
+### Observação importante
 
-O `systemManagedComponentsNodeSelector` utiliza o formato:
+O parâmetro:
+
+```yaml
+systemManagedComponentsNodeSelector
+```
+
+utiliza `:` no valor do selector:
 
 ```text
 kubernetes.io/hostname:vuhwk
@@ -156,39 +107,21 @@ e não:
 kubernetes.io/hostname=vuhwk
 ```
 
-O Longhorn 1.12 valida esse parâmetro utilizando `:` como separador.
-
----
-
-# Instalação
+A configuração foi corrigida durante a implantação através de:
 
 ```bash
-helm install longhorn longhorn/longhorn \
-  --namespace longhorn-system \
-  --create-namespace \
+helm upgrade longhorn longhorn/longhorn \
+  -n longhorn-system \
   --version 1.12.0 \
-  -f longhorn-values.yaml
+  --reuse-values \
+  --set-string defaultSettings.systemManagedComponentsNodeSelector="kubernetes.io/hostname:vuhwk"
 ```
 
-Validar:
+## Réplicas
 
-```bash
-helm list -n longhorn-system
-```
+O laboratório possui apenas um nó de armazenamento.
 
----
-
-# StorageClass
-
-O Longhorn cria automaticamente a StorageClass:
-
-```text
-longhorn
-```
-
-Por padrão, o Longhorn utiliza três réplicas. Como o laboratório possui somente um nó de storage, a StorageClass foi configurada para utilizar uma única réplica.
-
-Foi aplicado:
+Por isso, o número padrão de réplicas foi configurado para `1`.
 
 ```bash
 helm upgrade longhorn longhorn/longhorn \
@@ -198,431 +131,130 @@ helm upgrade longhorn longhorn/longhorn \
   --set persistence.defaultClassReplicaCount=1
 ```
 
-Validar:
+O StorageClass utiliza uma única réplica.
 
-```bash
-kubectl get storageclass longhorn -o yaml
-```
+## StorageClass
 
-O parâmetro esperado é:
-
-```yaml
-numberOfReplicas: "1"
-```
-
-### Importante
-
-Existem duas configurações diferentes:
+StorageClasses existentes:
 
 ```text
-defaultSettings.defaultReplicaCount
+longhorn
+longhorn-static
 ```
 
-e:
+O StorageClass `longhorn` é o padrão do cluster.
+
+Características:
 
 ```text
-persistence.defaultClassReplicaCount
+Provisioner: driver.longhorn.io
+ReclaimPolicy: Delete
+VolumeBindingMode: Immediate
+AllowVolumeExpansion: true
 ```
 
-Para volumes criados através de PVC Kubernetes, a configuração da StorageClass é a relevante.
+## Engine Image
 
----
-
-# Longhorn Nodes
-
-Validar os nós registrados pelo Longhorn:
-
-```bash
-kubectl get nodes.longhorn.io -n longhorn-system -o wide
-```
-
-Resultado esperado:
+Engine Image validada:
 
 ```text
-vuhwk
-```
-
-O `vuhmt` não deve possuir disk Longhorn.
-
----
-
-# Disk Longhorn
-
-O storage utilizado pelo `vuhwk` está localizado em:
-
-```text
-/var/lib/longhorn/
-```
-
-Esse diretório representa o armazenamento local utilizado pelo Longhorn neste laboratório.
-
----
-
-# Engine Image
-
-O Longhorn utiliza uma Engine Image para executar as operações dos volumes.
-
-Versão utilizada:
-
-```text
+ei-a4d05f02
 docker.io/longhornio/longhorn-engine:v1.12.0
 ```
 
-Validar:
-
-```bash
-kubectl get engineimages.longhorn.io \
-  -n longhorn-system \
-  -o wide
-```
-
-Resultado validado:
+Estado:
 
 ```text
-NAME          INCOMPATIBLE   STATE      IMAGE
-ei-a4d05f02   false          deployed   docker.io/longhornio/longhorn-engine:v1.12.0
+deployed
 ```
 
-A Engine Image foi executada exclusivamente no:
+## Teste de persistência
+
+Foi criado um PVC utilizando Longhorn.
+
+O volume foi:
+
+1. provisionado;
+2. associado a um PV;
+3. anexado ao worker;
+4. utilizado por um Pod;
+5. preenchido com dados;
+6. o Pod foi removido;
+7. um novo Pod foi criado;
+8. os dados permaneceram disponíveis.
+
+Isso validou o funcionamento básico de:
 
 ```text
-vuhwk
-```
-
----
-
-# Componentes
-
-Validar os DaemonSets:
-
-```bash
-kubectl get daemonset -n longhorn-system
-```
-
-Estado validado:
-
-```text
-engine-image-ei-a4d05f02   1/1
-longhorn-csi-plugin        1/1
-longhorn-manager           1/1
-```
-
-Todos os componentes de storage estão executando no `vuhwk`.
-
----
-
-# Teste de PersistentVolumeClaim
-
-Foi criado o PVC:
-
-```yaml
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: longhorn-test-pvc
-  namespace: default
-spec:
-  accessModes:
-    - ReadWriteOnce
-  storageClassName: longhorn
-  resources:
-    requests:
-      storage: 1Gi
-```
-
-Validar:
-
-```bash
-kubectl get pvc longhorn-test-pvc
-```
-
-Resultado validado:
-
-```text
-NAME                STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS
-longhorn-test-pvc   Bound    pvc-b5b65949-b00d-427e-9877-9a2406aa47c3   1Gi        RWO            longhorn
-```
-
-Resultado:
-
-```text
-PVC = Bound
-```
-
----
-
-# PersistentVolume
-
-Validar:
-
-```bash
-kubectl get pv
-```
-
-Resultado validado:
-
-```text
-NAME                                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS
-pvc-b5b65949-b00d-427e-9877-9a2406aa47c3   1Gi        RWO            Delete           Bound
-```
-
-Resultado:
-
-```text
-PV = Bound
-```
-
----
-
-# Longhorn Volume
-
-O PVC gerou o seguinte Longhorn Volume:
-
-```text
-pvc-b5b65949-b00d-427e-9877-9a2406aa47c3
-```
-
-Validar:
-
-```bash
-kubectl get volumes.longhorn.io \
-  -n longhorn-system \
-  -o wide
-```
-
-Durante a utilização pelo Pod:
-
-```text
-STATE       attached
-ROBUSTNESS  healthy
-SIZE        1Gi
-NODE        vuhwk
-```
-
-Resultado:
-
-```text
-Volume = Attached
-Robustness = Healthy
-Node = vuhwk
-```
-
----
-
-# Réplica
-
-Validar:
-
-```bash
-kubectl get replicas.longhorn.io \
-  -n longhorn-system \
-  -o wide
-```
-
-Foi criada exatamente uma réplica:
-
-```text
-NODE: vuhwk
-```
-
-Não existe réplica no `vuhmt`.
-
-Arquitetura:
-
-```text
-Longhorn Volume
-      |
-      +---- Replica 1
-              |
-            vuhwk
-```
-
----
-
-# Teste de montagem
-
-Foi criado um Pod utilizando o PVC:
-
-```text
-longhorn-test-pod
-```
-
-O Pod foi executado no:
-
-```text
-vuhwk
-```
-
-O PVC foi montado em:
-
-```text
-/data
-```
-
-Foi criado o arquivo:
-
-```text
-/data/teste.txt
-```
-
-Conteúdo:
-
-```text
-Longhorn funcionando - Fri Sep  4 14:18:55 UTC 2026
-```
-
-Validação:
-
-```bash
-kubectl exec longhorn-test-pod -- cat /data/teste.txt
-```
-
-Resultado:
-
-```text
-Longhorn funcionando - Fri Sep  4 14:18:55 UTC 2026
-```
-
-Resultado:
-
-```text
-Escrita = OK
-Leitura = OK
-Montagem = OK
-```
-
----
-
-# Teste de persistência
-
-Após a gravação do arquivo, o Pod foi removido:
-
-```bash
-kubectl delete pod longhorn-test-pod
-```
-
-O Pod foi posteriormente recriado utilizando o mesmo PVC.
-
-O arquivo continuou disponível:
-
-```bash
-kubectl exec longhorn-test-pod -- cat /data/teste.txt
-```
-
-Resultado:
-
-```text
-Longhorn funcionando - Fri Sep  4 14:18:55 UTC 2026
-```
-
-Esse teste confirmou que o dado persistiu após a exclusão e recriação do Pod.
-
-Fluxo validado:
-
-```text
+PVC
+ ↓
+StorageClass
+ ↓
+Longhorn
+ ↓
+Volume
+ ↓
 Pod
- |
- PVC
- |
- PV
- |
- Longhorn
- |
- Volume
- |
- Replica
- |
- vuhwk
 ```
 
----
+## Nó de armazenamento
 
-# Estado final da validação
-
-| Componente | Resultado |
-|---|---|
-| Helm | OK |
-| Longhorn 1.12.0 | OK |
-| Longhorn Manager | OK |
-| CSI Plugin | OK |
-| CSI Provisioner | OK |
-| Engine Image | OK |
-| StorageClass | OK |
-| StorageClass com 1 réplica | OK |
-| PVC | Bound |
-| PV | Bound |
-| Longhorn Volume | Attached |
-| Volume Robustness | Healthy |
-| Replica | 1 |
-| Storage Node | `vuhwk` |
-| `vuhmt` como storage | Não |
-| Pod utilizando PVC | Running |
-| Escrita | OK |
-| Leitura | OK |
-| Persistência após recriação do Pod | OK |
-
----
-
-# Limitação atual
-
-A configuração possui:
-
-```text
-1 nó de storage
-1 réplica
-```
-
-Portanto, atualmente não existe redundância do armazenamento.
-
-Se o `vuhwk` ficar indisponível:
+O nó utilizado pelo Longhorn é:
 
 ```text
 vuhwk
-  |
-  +--- única réplica
 ```
 
-não existe outro nó contendo uma cópia do volume.
-
-Consequentemente, o Longhorn não poderá reconstruir o volume em outro nó.
-
-Essa limitação é intencional nesta fase do laboratório.
-
----
-
-# Próxima etapa
-
-A próxima etapa será testar a falha do worker `vuhwk`.
-
-O objetivo será observar:
-
-- comportamento do Pod;
-- comportamento do PVC;
-- comportamento do PV;
-- estado do Longhorn Volume;
-- estado da réplica;
-- comportamento do Kubernetes quando o worker fica indisponível;
-- impacto da existência de apenas uma réplica.
-
-Depois disso, o laboratório poderá evoluir para múltiplos nós de storage e replicação.
-
-Arquitetura futura:
+Configuração do disco Longhorn:
 
 ```text
-                    Longhorn
-                       |
-             +---------+---------+
-             |                   |
-           vuhwk              worker2
-             |                   |
-         Replica 1           Replica 2
+Path: /var/lib/longhorn/
+Disk Type: filesystem
+Schedulable: true
 ```
 
-Essa próxima fase permitirá validar:
+Foi utilizado disco adicional no worker para o armazenamento Longhorn.
 
-- replicação;
-- rebuild;
-- recuperação;
-- falha de nó;
-- migração de workloads;
-- alta disponibilidade do storage.
+## Validação
+
+Comandos utilizados:
+
+```bash
+kubectl get pods -n longhorn-system -o wide
+kubectl get nodes
+kubectl get storageclass
+kubectl get volumes.longhorn.io -n longhorn-system
+```
+
+Também foram verificadas as condições do nó Longhorn e o funcionamento do volume através de PVC/Pod.
+
+## Limitação conhecida
+
+Esta configuração **não fornece alta disponibilidade de armazenamento**.
+
+Como existe somente um nó Longhorn e apenas uma réplica:
+
+```text
+Réplicas: 1
+Nós de storage: 1
+```
+
+a indisponibilidade do `vuhwk` implica indisponibilidade dos volumes armazenados nele.
+
+Essa decisão é intencional para o laboratório e reduz o consumo de recursos.
+
+Em um ambiente produtivo seriam necessários múltiplos nós de armazenamento e múltiplas réplicas.
+
+## Resultado
+
+```text
+Longhorn
+    │
+    ├── Instalado
+    ├── StorageClass funcional
+    ├── Storage persistente validado
+    ├── Worker vuhwk configurado
+    └── Persistência após recriação de Pod validada
+```
+
+**Status: ✅ Concluído**
